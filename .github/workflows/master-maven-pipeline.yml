@@ -12,18 +12,27 @@ on:
         type: string
         default: "maven"
       build-egress-policy:
+        description: >
+          Harden-runner policy for the build + verify (test/security) phases.
+          Defaults to "block"; the allowlists below must cover every host these
+          phases reach. Watch the first run and add any denied host (visible in
+          the harden-runner run summary) before relying on it.
         required: false
         type: string
-        default: "audit"
+        default: "block"
       build-allowed-endpoints:
         required: false
         type: string
         default: >
           github.com:443
           repo.maven.apache.org:443
+          repo1.maven.org:443
           api.github.com:443
           repo.spring.io:443
           repository.jboss.org:443
+          objects.githubusercontent.com:443
+          release-assets.githubusercontent.com:443
+          github-releases.githubusercontent.com:443
       extra-build-endpoints:
         required: false
         type: string
@@ -34,9 +43,13 @@ on:
         default: >
           github.com:443
           repo.maven.apache.org:443
+          repo1.maven.org:443
           api.github.com:443
           repo.spring.io:443
           repository.jboss.org:443
+          objects.githubusercontent.com:443
+          release-assets.githubusercontent.com:443
+          github-releases.githubusercontent.com:443
       extra-test-endpoints:
         required: false
         type: string
@@ -58,8 +71,8 @@ on:
           github-releases.githubusercontent.com:443
           raw.githubusercontent.com:443
           check.trivy.dev:443
-          get.anchore.io:433
-          timestamp.sigstore.dev:433
+          get.anchore.io:443
+          timestamp.sigstore.dev:443
       extra-security-endpoints:
         required: false
         type: string
@@ -95,20 +108,6 @@ on:
         type: string
         default: ""
       spring-boot-args:
-        required: false
-        type: string
-        default: ""
-      gitops-manifest-path:
-        required: false
-        type: string
-        default: "k8s/api.yaml"
-      gitops-allowed-endpoints:
-        required: false
-        type: string
-        default: >
-          github.com:443
-          api.github.com:443
-      extra-gitops-endpoints:
         required: false
         type: string
         default: ""
@@ -197,6 +196,11 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        with:
+          egress-policy: audit
+
       - name: Check pipeline result
         env:
           BUILD: ${{ needs.build.result }}

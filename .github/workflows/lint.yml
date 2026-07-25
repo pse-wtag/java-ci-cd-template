@@ -11,6 +11,16 @@ on:
         required: false
         type: string
         default: "maven"
+      egress-policy:
+        description: Harden runner policy (audit or block)
+        required: false
+        type: string
+        default: "audit"
+      allowed-endpoints:
+        description: Allowed endpoints when policy is block
+        required: false
+        type: string
+        default: ""
 
 jobs:
   spotless-check:
@@ -22,7 +32,8 @@ jobs:
       - name: Harden Runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
-          egress-policy: audit
+          egress-policy: ${{ inputs.egress-policy }}
+          allowed-endpoints: ${{ inputs.allowed-endpoints }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

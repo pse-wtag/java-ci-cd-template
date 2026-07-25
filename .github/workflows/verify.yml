@@ -37,6 +37,8 @@ jobs:
     with:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.egress-policy }}
+      allowed-endpoints: ${{ inputs.test-allowed-endpoints }}
 
   unit-tests:
     uses: ./.github/workflows/unit-tests.yml

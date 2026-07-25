@@ -104,6 +104,18 @@ jobs:
           echo "image=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve Trivy DB cache date
+        id: trivy-date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Trivy vulnerability DB
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ github.workspace }}/.cache/trivy
+          key: trivy-db-${{ steps.trivy-date.outputs.date }}
+          restore-keys: |
+            trivy-db-
+
       - name: Scan image for vulnerabilities (Trivy)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
@@ -114,6 +126,7 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           format: table
+          cache-dir: ${{ github.workspace }}/.cache/trivy
 
       - name: Generate SBOM (Syft)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610

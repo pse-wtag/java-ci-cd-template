@@ -1,0 +1,41 @@
+name: Linting Module
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+
+jobs:
+  spotless-check:
+    name: Code Formatting (Spotless & Ktlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Setup Java Environment
+        uses: pse-wtag/java-cicd-template/.github/actions/java-setup@v0.0.3
+        with:
+          java-version: ${{ inputs.java-version }}
+          cache-type: ${{ inputs.cache-type }}
+
+      - name: Make Maven wrappers executable
+        run: chmod +x mvnw
+
+      - name: Verify Code Formatting (Maven)
+        run: ./mvnw -B -ntp spotless:check

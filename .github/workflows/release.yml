@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+      egress-policy:
+        required: false
+        type: string
+        default: "audit"
+      docker-allowed-endpoints:
+        required: false
+        type: string
+        default: ""
+      spring-boot-args:
+        required: false
+        type: string
+        default: ""
+    secrets:
+      CR_PAT:
+        required: false
+
+jobs:
+  tag:
+    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main'
+    uses: ./.github/workflows/tag.yml
+    permissions:
+      contents: write
+
+  docker-publish:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/docker.yml
+    secrets:
+      CR_PAT: ${{ secrets.CR_PAT }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.egress-policy }}
+      allowed-endpoints: ${{ inputs.docker-allowed-endpoints }}
+      spring-boot-args: ${{ inputs.spring-boot-args }}

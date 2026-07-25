@@ -1,0 +1,93 @@
+name: Integration Tests Module
+
+on:
+  workflow_call:
+    inputs:
+      egress-policy:
+        description: Harden runner policy (audit or block)
+        required: false
+        type: string
+        default: "audit"
+      allowed-endpoints:
+        description: Allowed endpoints when policy is block
+        required: false
+        type: string
+        default: ""
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+      test-args:
+        description: Extra arguments to pass to the test runner (e.g. -D properties)
+        required: false
+        type: string
+        default: ""
+    secrets:
+      extra-secrets:
+        description: >
+          Optional JSON object ({"NAME":"value",...}) of secrets to expose as
+          environment variables to the integration tests. Pass ONLY the secrets
+          a test genuinely needs against a real external system. Prefer
+          Testcontainers so tests are self-contained and need no secrets at all.
+          Never pass toJSON(secrets) here — curate the object explicitly.
+        required: false
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        with:
+          egress-policy: ${{ inputs.egress-policy }}
+          allowed-endpoints: ${{ inputs.allowed-endpoints }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Setup Java Environment
+        uses: pse-wtag/java-cicd-template/.github/actions/java-setup@v0.0.3
+        with:
+          java-version: ${{ inputs.java-version }}
+          cache-type: ${{ inputs.cache-type }}
+
+      - name: Load Extra Secrets to Environment
+        run: |
+          if [ -z "$EXTRA_SECRETS" ]; then
+            echo "No extra secrets provided — skipping."
+            exit 0
+          fi
+          DELIM="EOF_$(openssl rand -hex 16)"
+          echo "$EXTRA_SECRETS" \
+            | jq -r --arg d "$DELIM" 'to_entries[] | select(.key | ascii_downcase != "github_token") | "\(.key)<<\($d)\n\(.value)\n\($d)"' \
+            >> "$GITHUB_ENV"
+        env:
+          EXTRA_SECRETS: ${{ secrets.extra-secrets }}
+
+      - name: Make Maven wrappers executable
+        run: chmod +x mvnw
+
+      - name: Run Integration Tests (Maven)
+        env:
+          TEST_ARGS: ${{ inputs.test-args }}
+        run: |
+          # shellcheck disable=SC2086
+          ./mvnw -B -ntp -T 1C verify -Dsurefire.skip=true $TEST_ARGS --file pom.xml
+
+      - name: Publish Integration Tests Report (Maven)
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2
+        if: always()
+        continue-on-error: true
+        with:
+          name: Maven Integration Tests
+          path: "**/target/*-reports/TEST-*.xml"
+          reporter: java-junit
+          fail-on-error: 'false'

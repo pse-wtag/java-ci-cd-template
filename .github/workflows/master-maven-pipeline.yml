@@ -1,0 +1,215 @@
+name: Maven Master Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+      build-egress-policy:
+        required: false
+        type: string
+        default: "audit"
+      build-allowed-endpoints:
+        required: false
+        type: string
+        default: >
+          github.com:443
+          repo.maven.apache.org:443
+          api.github.com:443
+          repo.spring.io:443
+          repository.jboss.org:443
+      extra-build-endpoints:
+        required: false
+        type: string
+        default: ""
+      test-allowed-endpoints:
+        required: false
+        type: string
+        default: >
+          github.com:443
+          repo.maven.apache.org:443
+          api.github.com:443
+          repo.spring.io:443
+          repository.jboss.org:443
+      extra-test-endpoints:
+        required: false
+        type: string
+        default: ""
+      security-allowed-endpoints:
+        required: false
+        type: string
+        default: >
+          api.github.com:443
+          github.com:443
+          ghcr.io:443
+          pkg-containers.githubusercontent.com:443
+          release-assets.githubusercontent.com:443
+          repo.maven.apache.org:443
+          repo.spring.io:443
+          repository.jboss.org:443
+          uploads.github.com:443
+          objects.githubusercontent.com:443
+          github-releases.githubusercontent.com:443
+          raw.githubusercontent.com:443
+          check.trivy.dev:443
+          get.anchore.io:433
+          timestamp.sigstore.dev:433
+      extra-security-endpoints:
+        required: false
+        type: string
+        default: ""
+      docker-allowed-endpoints:
+        required: false
+        type: string
+        default: >
+          auth.docker.io:443
+          ghcr.io:443
+          github.com:443
+          production.cloudfront.docker.com:443
+          registry-1.docker.io:443
+          release-assets.githubusercontent.com:443
+          repo1.maven.org:443
+          api.github.com:443
+          objects.githubusercontent.com:443
+          pkg-containers.githubusercontent.com:443
+          fulcio.sigstore.dev:443
+          rekor.sigstore.dev:443
+          tuf-repo-cdn.sigstore.dev:443
+          mirror.gcr.io:443
+          github-releases.githubusercontent.com:443
+          raw.githubusercontent.com:443
+          toolbox-data.anchore.io:443
+          timestamp.sigstore.dev:443
+      extra-docker-endpoints:
+        required: false
+        type: string
+        default: ""
+      test-args:
+        required: false
+        type: string
+        default: ""
+      spring-boot-args:
+        required: false
+        type: string
+        default: ""
+      gitops-manifest-path:
+        required: false
+        type: string
+        default: "k8s/api.yaml"
+      gitops-allowed-endpoints:
+        required: false
+        type: string
+        default: >
+          github.com:443
+          api.github.com:443
+      extra-gitops-endpoints:
+        required: false
+        type: string
+        default: ""
+    secrets:
+      CR_PAT:
+        description: >
+          Optional PAT for pushing to and cleaning up GHCR. Falls back to the
+          job's GITHUB_TOKEN when not provided.
+        required: false
+      extra-secrets:
+        description: >
+          Optional JSON object of secrets to expose to the integration tests
+          (see integration-tests.yml). Curate it explicitly; do not pass the
+          whole secret store.
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: write
+      security-events: write
+      checks: write
+      pull-requests: write
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.build-egress-policy }}
+      allowed-endpoints: >
+        ${{ inputs.build-allowed-endpoints }}
+        ${{ inputs.extra-build-endpoints }}
+
+  verify:
+    needs: build
+    uses: ./.github/workflows/verify.yml
+    permissions:
+      checks: write
+      security-events: write
+      actions: read
+      contents: read
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.build-egress-policy }}
+      test-allowed-endpoints: >
+        ${{ inputs.test-allowed-endpoints }}
+        ${{ inputs.extra-test-endpoints }}
+      security-allowed-endpoints: >
+        ${{ inputs.security-allowed-endpoints }}
+        ${{ inputs.extra-security-endpoints }}
+      test-args: ${{ inputs.test-args }}
+    secrets:
+      extra-secrets: ${{ secrets.extra-secrets }}
+
+  release:
+    needs: verify
+    uses: ./.github/workflows/release.yml
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    secrets:
+      CR_PAT: ${{ secrets.CR_PAT }}
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.build-egress-policy }}
+      docker-allowed-endpoints: >
+        ${{ inputs.docker-allowed-endpoints }}
+        ${{ inputs.extra-docker-endpoints }}
+      spring-boot-args: ${{ inputs.spring-boot-args }}
+
+  build-gate:
+    needs:
+      - build
+      - verify
+      - release
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check pipeline result
+        env:
+          BUILD: ${{ needs.build.result }}
+          VERIFY: ${{ needs.verify.result }}
+          RELEASE: ${{ needs.release.result }}
+        run: |
+          RESULTS=("$BUILD" "$VERIFY" "$RELEASE")
+
+          for result in "${RESULTS[@]}"; do
+            if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+              echo "❌ Pipeline failed or was cancelled"
+              exit 1
+            fi
+          done
+
+          echo "✅ Pipeline passed successfully!"

@@ -1,0 +1,71 @@
+name: Build Module
+
+on:
+  workflow_call:
+    inputs:
+      egress-policy:
+        description: Harden runner policy (audit or block)
+        required: false
+        type: string
+        default: "audit"
+      allowed-endpoints:
+        description: Allowed endpoints when policy is block
+        required: false
+        type: string
+        default: ""
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+
+jobs:
+  build:
+    name: Build & Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      security-events: write
+      checks: write
+      pull-requests: write
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        with:
+          egress-policy: ${{ inputs.egress-policy }}
+          allowed-endpoints: ${{ inputs.allowed-endpoints }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Reject .env file
+        run: |
+          ENV_FILES=$(git ls-files --cached -- '*.env' ':!:.env.example' | grep -v '\.env\.example$' || true)
+          if [ -n "$ENV_FILES" ]; then
+            echo "::error::Tracked .env files detected – remove them before merging:"
+            echo "$ENV_FILES"
+            exit 1
+          fi
+
+      - name: Setup Java Environment
+        uses: pse-wtag/java-cicd-template/.github/actions/java-setup@v0.0.3
+        with:
+          java-version: ${{ inputs.java-version }}
+          cache-type: ${{ inputs.cache-type }}
+
+      - name: Make Maven wrappers executable
+        run: chmod +x mvnw
+
+      - name: Compile and Package (Maven)
+        run: ./mvnw -B -ntp -T 1C clean package -DskipTests --file pom.xml
+
+      - name: Update dependency graph
+        if: github.event_name == 'push'
+        uses: advanced-security/maven-dependency-submission-action@b275d12641ac2d2108b2cbb7598b154ad2f2cee8

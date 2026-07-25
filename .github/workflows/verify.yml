@@ -1,0 +1,74 @@
+name: Verify
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+      egress-policy:
+        required: false
+        type: string
+        default: "audit"
+      test-allowed-endpoints:
+        required: false
+        type: string
+        default: ""
+      security-allowed-endpoints:
+        required: false
+        type: string
+        default: ""
+      test-args:
+        required: false
+        type: string
+        default: ""
+    secrets:
+      extra-secrets:
+        required: false
+
+jobs:
+  lint:
+    uses: ./.github/workflows/lint.yml
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+
+  unit-tests:
+    uses: ./.github/workflows/unit-tests.yml
+    permissions:
+      checks: write
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.egress-policy }}
+      allowed-endpoints: ${{ inputs.test-allowed-endpoints }}
+
+  integration-tests:
+    uses: ./.github/workflows/integration-tests.yml
+    permissions:
+      checks: write
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.egress-policy }}
+      allowed-endpoints: ${{ inputs.test-allowed-endpoints }}
+      test-args: ${{ inputs.test-args }}
+    secrets:
+      extra-secrets: ${{ secrets.extra-secrets }}
+
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.egress-policy }}
+      allowed-endpoints: ${{ inputs.security-allowed-endpoints }}

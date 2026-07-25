@@ -1,0 +1,48 @@
+name: GHCR Cleanup Module
+description: Clean up old GHCR images
+
+
+inputs:
+  image-name:
+    description: Name of the image to clean up
+    required: true
+  pat-token:
+    description: Personal Access Token for GHCR
+    required: true
+  account:
+    description: Account type that owns the image ('user' or 'org')
+    required: false
+    default: 'user'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Keep only the latest 3 images (Attempt 1)
+      id: cleanup_1
+      if: github.event_name != 'pull_request'
+      continue-on-error: true
+      uses: snok/container-retention-policy@d3bdcf5ce9b05f685154e4a16c39233b245e3d53
+      with:
+        image-names: ${{ inputs.image-name }}
+        cut-off: 0s
+        timestamp-to-use: 'updated_at'
+        keep-n-most-recent: '3'
+        account: ${{ inputs.account }}
+        token: ${{ inputs.pat-token }}
+
+    - name: Wait 60s
+      if: github.event_name != 'pull_request' && steps.cleanup_1.outcome == 'failure'
+      shell: bash
+      run: sleep 60
+
+    - name: Keep only the latest 3 images (Attempt 2)
+      if: github.event_name != 'pull_request' && steps.cleanup_1.outcome == 'failure'
+      continue-on-error: true
+      uses: snok/container-retention-policy@d3bdcf5ce9b05f685154e4a16c39233b245e3d53
+      with:
+        image-names: ${{ inputs.image-name }}
+        cut-off: 0s
+        timestamp-to-use: 'updated_at'
+        keep-n-most-recent: '3'
+        account: ${{ inputs.account }}
+        token: ${{ inputs.pat-token }}

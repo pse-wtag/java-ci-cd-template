@@ -1,0 +1,42 @@
+name: Tagging Module
+
+on:
+  workflow_call:
+
+
+jobs:
+  tag-pr:
+    name: Tag Pull Request
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: true
+
+      - name: Tag PR Build
+        env:
+          TAG: pr-${{ github.event.pull_request.number }}-run-${{ github.run_number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$TAG" -m "CI tag $TAG"
+          git push origin "$TAG"
+
+          TAGS_TO_DELETE=$(git ls-remote --tags origin "refs/tags/pr-${PR_NUMBER}-run-*" | grep -v '\^{}' | sed 's/.*refs\/tags\///' | sort -V -r | tail -n +5)
+
+          for OLD_TAG in $TAGS_TO_DELETE; do
+            echo "Deleting old tag: $OLD_TAG"
+            git push origin --delete "$OLD_TAG"
+          done

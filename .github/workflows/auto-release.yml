@@ -1,0 +1,49 @@
+name: Auto-Release Module
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  auto-tag:
+    name: Generate Version Tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bump Version and Push tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@a22cf08638b34d5badda920f9daf6e72c477b07b
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: 'patch'
+
+      - name: Create Github release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
+        with:
+          tag_name: ${{ steps.tag_version.outputs.new_tag }}
+          name: Release ${{ steps.tag_version.outputs.new_tag }}
+          generate_release_notes: true
+
+      - name: Cleanup old releases (Keep top 10)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OLD_RELEASES=$(gh release list --limit 100 --json tagName --jq '.[10:][].tagName')
+
+          if [ -z "$OLD_RELEASES" ]; then
+            echo "10 or fewer releases exist. Nothing to clean up"
+          else
+            for tag in $OLD_RELEASES; do
+              echo "Deleting release and tag: $tag"
+              gh release delete "$tag" --cleanup-tag --yes
+            done
+          fi

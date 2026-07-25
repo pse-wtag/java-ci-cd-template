@@ -1,0 +1,155 @@
+name: Buildpack Build and Push Module
+
+on:
+  workflow_call:
+    inputs:
+      egress-policy:
+        description: Harden runner policy (audit or block)
+        required: false
+        type: string
+        default: "audit"
+      allowed-endpoints:
+        description: Allowed endpoints when policy is block
+        required: false
+        type: string
+        default: ""
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+      spring-boot-args:
+        description: Extra arguments for the Spring Boot build command (e.g. profiles or modules)
+        required: false
+        type: string
+        default: ""
+    secrets:
+      CR_PAT:
+        description: >
+          Optional PAT for pushing to and cleaning up GHCR. Falls back to the
+          job's GITHUB_TOKEN when not provided.
+        required: false
+
+jobs:
+  build-and-push:
+    name: Buildpack Build and Push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        with:
+          egress-policy: ${{ inputs.egress-policy }}
+          allowed-endpoints: ${{ inputs.allowed-endpoints }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Setup Java Environment
+        uses: pse-wtag/java-cicd-template/.github/actions/java-setup@v0.0.3
+        with:
+          java-version: ${{ inputs.java-version }}
+          cache-type: ${{ inputs.cache-type }}
+
+      - name: Login to Github Container Registry
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.CR_PAT || github.token }}
+
+      - name: Make Maven wrappers executable
+        run: chmod +x mvnw
+
+      - name: Build and Push (Maven)
+        id: build
+        env:
+          REPO_NAME: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          SHORT_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REGISTRY_ACTOR: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.CR_PAT || github.token }}
+          SPRING_BOOT_ARGS: ${{ inputs.spring-boot-args }}
+        run: |
+          REPO_LC=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')
+          SHORT_SHA=$(echo "$SHORT_SHA" | cut -c1-7)
+
+          if [ "$EVENT_NAME" == "pull_request" ]; then
+            TAG="pr-${PR_NUMBER}"
+            PUBLISH=false
+          else
+            TAG="main-${SHORT_SHA}"
+            PUBLISH="true"
+          fi
+
+          IMAGE_NAME="ghcr.io/${REPO_LC}:${TAG}"
+
+          echo "Building image: $IMAGE_NAME"
+          echo "Publishing to GHCR: $PUBLISH"
+
+          # shellcheck disable=SC2086
+          ./mvnw -B -ntp -T 1C clean package spring-boot:build-image $SPRING_BOOT_ARGS \
+            -Dspring-boot.build-image.imageName="$IMAGE_NAME" \
+            -Dspring-boot.build-image.publish="$PUBLISH" \
+            -Dspring-boot.build-image.docker.publishRegistry.url=https://ghcr.io \
+            -Dspring-boot.build-image.docker.publishRegistry.username="$REGISTRY_ACTOR" \
+            -Dspring-boot.build-image.docker.publishRegistry.password="$REGISTRY_PASSWORD"
+
+          echo "image=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: image
+          image-ref: ${{ steps.build.outputs.image }}
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+
+      - name: Generate SBOM (Syft)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          image: ${{ steps.build.outputs.image }}
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          upload-artifact: false
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.cyclonedx.json
+          retention-days: 30
+
+      - name: Install Cosign
+        if: steps.build.outputs.publish == 'true'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+      - name: Sign published image (keyless)
+        if: steps.build.outputs.publish == 'true'
+        env:
+          IMAGE_NAME: ${{ steps.build.outputs.image }}
+        run: |
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_NAME")
+          if [ -z "$DIGEST" ]; then
+            echo "::error::Could not resolve pushed image digest for signing"
+            exit 1
+          fi
+          echo "Signing $DIGEST"
+          cosign sign --yes "$DIGEST"
+
+      - name: GHCR Cleanup (With Auto-retry)
+        if: github.event_name != 'pull_request'
+        uses: pse-wtag/java-cicd-template/.github/actions/ghcr-cleanup@v0.0.3
+        with:
+          image-name: ${{ github.event.repository.name }}
+          pat-token: ${{ secrets.CR_PAT || github.token }}

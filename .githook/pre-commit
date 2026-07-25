@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ── 1. Secrets scan (gitleaks) ─────────────────────────────────────────────
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! GITLEAKS_OUT=$(gitleaks protect --staged --redact --no-banner 2>&1); then
+    echo "$GITLEAKS_OUT"
+    echo ""
+    echo "[pre-commit] ❌ Secrets detected in staged CI/CD changes — commit blocked."
+    exit 1
+  fi
+else
+  echo "[pre-commit] ⚠️  gitleaks not installed — skipping secret scan."
+fi
+

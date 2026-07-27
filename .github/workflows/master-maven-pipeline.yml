@@ -82,6 +82,7 @@ on:
           github-releases.githubusercontent.com:443
           raw.githubusercontent.com:443
           check.trivy.dev:443
+          get.trivy.dev:443
           get.anchore.io:443
           timestamp.sigstore.dev:443
           mirror.gcr.io:443

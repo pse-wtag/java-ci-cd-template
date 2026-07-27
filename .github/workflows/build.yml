@@ -55,7 +55,7 @@ jobs:
           fi
 
       - name: Setup Java Environment
-        uses: pse-wtag/java-ci-cd-template/.github/actions/java-setup@v0.0.3
+        uses: pse-wtag/java-ci-cd-template/.github/actions/java-setup@v0.0.8
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}

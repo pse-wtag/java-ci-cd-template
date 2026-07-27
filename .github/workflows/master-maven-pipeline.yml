@@ -22,11 +22,11 @@ on:
         default: "block"
       release-egress-policy:
         description: >
-          Harden-runner policy for the release phase (docker publish + gitops).
-          Defaults to "block"; the docker/gitops allowlists below must cover
-          every host these phases reach. Buildpack image builds pull from a
-          broad set of registries, so watch the first runs and extend
-          extra-docker-endpoints with any denied host (visible in the
+          Harden-runner policy for the release phase (docker publish + image
+          signature verification). Defaults to "block"; the docker allowlist
+          below must cover every host these jobs reach. Buildpack image builds
+          pull from a broad set of registries, so watch the first runs and
+          extend extra-docker-endpoints with any denied host (visible in the
           harden-runner run summary) before relying on it.
         required: false
         type: string
@@ -111,7 +111,6 @@ on:
           raw.githubusercontent.com:443
           toolbox-data.anchore.io:443
           timestamp.sigstore.dev:443
-          mirror.gcr.io:443
       extra-docker-endpoints:
         required: false
         type: string
@@ -126,11 +125,12 @@ on:
         default: ""
       signer-identity-regexp:
         description: >
-          Regexp the release phase requires the image's keyless Cosign
-          signature to match before the manifest is promoted (cosign
-          --certificate-identity-regexp). Empty defaults to any workflow under
-          the current repository owner. Set this explicitly when the signing
-          reusable workflow lives in a different org than the consuming repo.
+          Regexp the release phase's verify-image job requires the image's
+          keyless Cosign signature to match (cosign --certificate-identity-regexp).
+          Empty defaults to a workflow file under the current repository owner.
+          Pin it to the exact signing-workflow path for a tighter trust boundary,
+          or set it when the signing reusable workflow lives in a different org
+          than the consuming repo.
         required: false
         type: string
         default: ""
@@ -219,11 +219,12 @@ jobs:
       - release
     runs-on: ubuntu-latest
     if: always()
+    permissions: {}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
-          egress-policy: audit
+          egress-policy: block
 
       - name: Check pipeline result
         env:

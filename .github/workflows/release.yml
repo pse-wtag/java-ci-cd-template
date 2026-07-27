@@ -25,9 +25,11 @@ on:
         default: ""
       signer-identity-regexp:
         description: >
-          Regexp the published image's keyless Cosign signature must match
-          before the GitOps manifest is promoted. Empty defaults to any
-          workflow under the current repository owner.
+          Regexp the published image's keyless Cosign signature must match for
+          verify-image to accept it. Empty defaults to a workflow file under the
+          current repository owner. Pin it to the exact signing-workflow path for
+          a tighter trust boundary, or set it when the signing reusable workflow
+          lives in a different org than the consuming repo.
         required: false
         type: string
         default: ""
@@ -85,21 +87,23 @@ jobs:
 
       - name: Verify image signature (keyless)
         env:
-          REPO_NAME: ${{ github.repository }}
+          IMAGE_DIGEST: ${{ needs.docker-publish.outputs.image-digest }}
           OWNER: ${{ github.repository_owner }}
-          SHORT_SHA: ${{ github.sha }}
           IDENTITY_REGEXP: ${{ inputs.signer-identity-regexp }}
         run: |
-          REPO_LC=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')
-          SHORT_SHA=$(echo "$SHORT_SHA" | cut -c1-7)
-          IMAGE="ghcr.io/${REPO_LC}:main-${SHORT_SHA}"
-
-          if [ -z "$IDENTITY_REGEXP" ]; then
-            IDENTITY_REGEXP="^https://github.com/${OWNER}/"
+          if [ -z "$IMAGE_DIGEST" ]; then
+            echo "::error::docker-publish produced no image digest to verify"
+            exit 1
           fi
 
-          echo "Verifying signature for $IMAGE (identity ~ ${IDENTITY_REGEXP})"
+          if [ -z "$IDENTITY_REGEXP" ]; then
+            # Default: require a workflow file under the repo owner, not just any
+            # identity. Set signer-identity-regexp to pin the exact signing workflow.
+            IDENTITY_REGEXP="^https://github\.com/${OWNER}/[^/]+/\.github/workflows/"
+          fi
+
+          echo "Verifying signature for $IMAGE_DIGEST (identity ~ ${IDENTITY_REGEXP})"
           cosign verify \
             --certificate-identity-regexp "$IDENTITY_REGEXP" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            "$IMAGE"
+            "$IMAGE_DIGEST"

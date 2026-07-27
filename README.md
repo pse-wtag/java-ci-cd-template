@@ -103,7 +103,8 @@ reusable workflow that **fans its jobs out in parallel** internally:
 2. When it passes, **`verify`** runs — its four jobs (lint, unit-tests,
    integration-tests, security) all start **at once**.
 3. When *all* of verify passes, **`release`** runs — `tag` and `docker-publish` run
-   **in parallel**.
+   **in parallel**; on a push to `main`, **`verify-image`** then re-checks the pushed
+   image's cosign signature before the stage is allowed to succeed.
 4. **`build-gate`** waits on all three stages and is the single required status check.
 
 `auto-release` is a **separate, standalone** workflow (`on: push` to `main`) — not part
@@ -123,10 +124,12 @@ flowchart TD
         S["security<br/>CodeQL · Gitleaks · Trivy SCA"]:::s3
     end
 
-    subgraph P3 ["3 · release — run in parallel"]
+    subgraph P3 ["3 · release"]
         direction LR
         TG["tag<br/>PR → main only"]:::s4
         D["docker-publish<br/>build · Trivy · SBOM · push · cosign"]:::s4
+        V["verify-image<br/>cosign verify · push→main only"]:::s4
+        D --> V
     end
 
     G["<b>4 · build-gate</b><br/>required status check"]:::s5
@@ -157,8 +160,9 @@ flowchart TD
 - **Pull request → `main`:** `build → { lint · unit · integration · security } →
   { tag · docker-build (no push) } → build-gate`. No image is pushed or signed.
 - **Push → `main`:** `build → { lint · unit · integration · security } →
-  docker-publish (image → GHCR, scanned + signed) → build-gate`. `tag` is skipped
-  (PR-only), and `auto-release.yml` fires independently to cut a release.
+  docker-publish (image → GHCR, scanned + signed) → verify-image (cosign verify) →
+  build-gate`. `tag` is skipped (PR-only), and `auto-release.yml` fires independently to
+  cut a release.
 
 ---
 
@@ -173,6 +177,7 @@ flowchart TD
 | 2 | **security** | `security.yml` | always | Three parallel scanners — **CodeQL** SAST (`java-kotlin`, self-skips when Code Scanning is off), **Gitleaks** secret scan, and **Trivy** dependency (SCA) scan that fails on *fixable* HIGH/CRITICAL CVEs. The Trivy vulnerability DB is cached across runs (`actions/cache`). |
 | 3 | **tag** | `tag.yml` | PR → `main` | Tags the PR build (`pr-<n>-run-<run>`) and prunes old PR tags (keeps the latest 4). |
 | 3 | **docker-publish** | `docker.yml` | `push`, or same-repo PR (pushes only on `push`) | Builds an OCI image via Spring Boot Buildpacks, **Trivy-scans** it (fails on fixable HIGH/CRITICAL; vuln DB cached via `actions/cache`), emits a **CycloneDX SBOM** artifact, pushes to **GHCR**, **signs** the pushed image with cosign (keyless/OIDC), then prunes old images (keeps the latest 3). |
+| 3 | **verify-image** | `release.yml` | push → `main` | Runs `cosign verify` against the exact **digest** `docker-publish` pushed and signed (not a mutable tag) — asserting a keyless signature whose certificate identity matches `signer-identity-regexp` and whose OIDC issuer is GitHub Actions. Fails the release stage if the signature is missing or untrusted. |
 | 4 | **build-gate** | inline | `always()` | Fails the run if any of `build` / `verify` / `release` failed or was cancelled. The single required status check. |
 | — | **auto-release** | `auto-release.yml` | push → `main` | Standalone workflow: bumps a SemVer patch tag, creates a GitHub Release with notes, keeps the latest 10. |
 
@@ -186,9 +191,11 @@ All inputs pass through `master-maven-pipeline.yml`. The most useful ones:
 |-------|---------|---------|
 | `java-version` | `"25"` | JDK version for every stage. |
 | `cache-type` | `"maven"` | Dependency-manager cache key for `setup-java`. |
-| `build-egress-policy` | `"block"` | Harden-Runner egress policy for build / verify / release (`block` = enforce allowlists, `audit` = log-only). |
+| `build-egress-policy` | `"block"` | Harden-Runner egress policy for build / verify (`block` = enforce allowlists, `audit` = log-only). |
+| `release-egress-policy` | `"block"` | Separate Harden-Runner egress policy for the release phase (docker publish + image verify). Split out from build so the broader registry set that buildpacks reach can be tuned independently. |
 | `*-allowed-endpoints` | see file | Per-stage egress allowlists (build / test / security / docker). |
 | `extra-*-endpoints` | `""` | Append hosts without overriding the defaults (`extra-build-endpoints`, `extra-test-endpoints`, `extra-security-endpoints`, `extra-docker-endpoints`). |
+| `signer-identity-regexp` | `""` | Certificate-identity regexp `verify-image` requires of the image's keyless cosign signature. Empty defaults to `^https://github.com/<owner>/` (any workflow under the repo owner). Set it to the specific signing-workflow path for a tighter trust boundary. |
 | `test-args` | `""` | Extra args for integration tests (e.g. `-D` properties). |
 | `spring-boot-args` | `""` | Extra args for the Spring Boot image build. |
 
@@ -278,8 +285,10 @@ pip install yamllint   # not on Chocolatey
 
 ## Security posture
 
-- **Hardened runners** — every job runs `step-security/harden-runner` with a configurable
-  egress policy and per-stage endpoint allowlists.
+- **Hardened runners** — every job that executes real work runs `step-security/harden-runner`
+  with a configurable egress policy and per-stage endpoint allowlists. Build/verify and
+  release each carry their own policy (`build-egress-policy` / `release-egress-policy`), both
+  defaulting to `block`.
 - **Pinned actions** — third-party actions are pinned to full commit SHAs; Dependabot
   keeps them current weekly.
 - **Secret scanning** — Gitleaks in CI (`security.yml`) *and* locally (`pre-commit`).
@@ -289,8 +298,16 @@ pip install yamllint   # not on Chocolatey
 - **Image scanning** — the built OCI image is Trivy-scanned before it ships, on PRs too.
 - **Cached vuln DB** — both Trivy scans cache the vulnerability database via `actions/cache`
   (keyed per day, with a shared restore fallback) to cut scan time and avoid rate limits.
-- **Supply-chain provenance** — a CycloneDX **SBOM** per build, and pushed images are
-  **signed with cosign** using keyless OIDC (no long-lived keys).
+- **Supply-chain provenance** — a CycloneDX **SBOM** per build, uploaded as an artifact
+  **and attested to the pushed digest** with cosign (`cosign attest --type cyclonedx`), so
+  the SBOM is cryptographically bound to the image (`cosign verify-attestation` downstream).
+  Pushed images are also **signed with cosign** using keyless OIDC (no long-lived keys).
+- **Signature verification (verify-then-trust)** — on push to `main`, `verify-image` runs
+  `cosign verify` against the exact **digest** that was pushed and signed (not the mutable
+  tag), asserting a signature whose certificate identity matches `signer-identity-regexp`
+  and whose issuer is GitHub Actions. A missing or untrusted signature fails the release.
+  Downstream deploys should re-run the same check at admission time (see the consumer
+  checklist) rather than trusting the tag alone.
 - **`.env` guard** — the build fails if tracked `.env` files are detected.
 - **Least privilege** — permissions are scoped per job, not globally; `docker-publish`
   receives only `CR_PAT`, not the whole secret store.

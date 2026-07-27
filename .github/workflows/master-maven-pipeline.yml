@@ -20,6 +20,17 @@ on:
         required: false
         type: string
         default: "block"
+      release-egress-policy:
+        description: >
+          Harden-runner policy for the release phase (docker publish + image
+          signature verification). Defaults to "block"; the docker allowlist
+          below must cover every host these jobs reach. Buildpack image builds
+          pull from a broad set of registries, so watch the first runs and
+          extend extra-docker-endpoints with any denied host (visible in the
+          harden-runner run summary) before relying on it.
+        required: false
+        type: string
+        default: "block"
       build-allowed-endpoints:
         required: false
         type: string
@@ -73,6 +84,7 @@ on:
           check.trivy.dev:443
           get.anchore.io:443
           timestamp.sigstore.dev:443
+          mirror.gcr.io:443
       extra-security-endpoints:
         required: false
         type: string
@@ -108,6 +120,17 @@ on:
         type: string
         default: ""
       spring-boot-args:
+        required: false
+        type: string
+        default: ""
+      signer-identity-regexp:
+        description: >
+          Regexp the release phase's verify-image job requires the image's
+          keyless Cosign signature to match (cosign --certificate-identity-regexp).
+          Empty defaults to a workflow file under the current repository owner.
+          Pin it to the exact signing-workflow path for a tighter trust boundary,
+          or set it when the signing reusable workflow lives in a different org
+          than the consuming repo.
         required: false
         type: string
         default: ""
@@ -182,11 +205,12 @@ jobs:
     with:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
-      egress-policy: ${{ inputs.build-egress-policy }}
+      egress-policy: ${{ inputs.release-egress-policy }}
       docker-allowed-endpoints: >
         ${{ inputs.docker-allowed-endpoints }}
         ${{ inputs.extra-docker-endpoints }}
       spring-boot-args: ${{ inputs.spring-boot-args }}
+      signer-identity-regexp: ${{ inputs.signer-identity-regexp }}
 
   build-gate:
     needs:
@@ -195,11 +219,12 @@ jobs:
       - release
     runs-on: ubuntu-latest
     if: always()
+    permissions: {}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
-          egress-policy: audit
+          egress-policy: block
 
       - name: Check pipeline result
         env:

@@ -20,6 +20,17 @@ on:
         required: false
         type: string
         default: "block"
+      release-egress-policy:
+        description: >
+          Harden-runner policy for the release phase (docker publish + gitops).
+          Defaults to "block"; the docker/gitops allowlists below must cover
+          every host these phases reach. Buildpack image builds pull from a
+          broad set of registries, so watch the first runs and extend
+          extra-docker-endpoints with any denied host (visible in the
+          harden-runner run summary) before relying on it.
+        required: false
+        type: string
+        default: "block"
       build-allowed-endpoints:
         required: false
         type: string
@@ -73,6 +84,7 @@ on:
           check.trivy.dev:443
           get.anchore.io:443
           timestamp.sigstore.dev:443
+          mirror.gcr.io:443
       extra-security-endpoints:
         required: false
         type: string
@@ -99,6 +111,7 @@ on:
           raw.githubusercontent.com:443
           toolbox-data.anchore.io:443
           timestamp.sigstore.dev:443
+          mirror.gcr.io:443
       extra-docker-endpoints:
         required: false
         type: string
@@ -108,6 +121,16 @@ on:
         type: string
         default: ""
       spring-boot-args:
+        required: false
+        type: string
+        default: ""
+      signer-identity-regexp:
+        description: >
+          Regexp the release phase requires the image's keyless Cosign
+          signature to match before the manifest is promoted (cosign
+          --certificate-identity-regexp). Empty defaults to any workflow under
+          the current repository owner. Set this explicitly when the signing
+          reusable workflow lives in a different org than the consuming repo.
         required: false
         type: string
         default: ""
@@ -182,11 +205,12 @@ jobs:
     with:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
-      egress-policy: ${{ inputs.build-egress-policy }}
+      egress-policy: ${{ inputs.release-egress-policy }}
       docker-allowed-endpoints: >
         ${{ inputs.docker-allowed-endpoints }}
         ${{ inputs.extra-docker-endpoints }}
       spring-boot-args: ${{ inputs.spring-boot-args }}
+      signer-identity-regexp: ${{ inputs.signer-identity-regexp }}
 
   build-gate:
     needs:

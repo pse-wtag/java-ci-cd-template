@@ -40,7 +40,7 @@ permissions:
 
 jobs:
   pipeline:
-    uses: pse-wtag/java-cicd-template/.github/workflows/master-maven-pipeline.yml@main
+    uses: pse-wtag/java-ci-cd-template/.github/workflows/master-maven-pipeline.yml@main
     secrets: inherit
     with:
       java-version: "25"
@@ -89,7 +89,7 @@ That's the whole integration. Everything below is driven from that one call.
    ```
 
 > Forking into another org? Update the `uses:` path in the caller **and** the
-> `pse-wtag/java-cicd-template/...@v0.0.3` composite-action references inside the reusable
+> `pse-wtag/java-ci-cd-template/...@v0.0.3` composite-action references inside the reusable
 > workflows to point at your fork.
 
 ---

@@ -209,19 +209,11 @@ jobs:
       spring-boot-args: ${{ inputs.spring-boot-args }}
       signer-identity-regexp: ${{ inputs.signer-identity-regexp }}
 
-  auto-release:
-    needs: release
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    uses: ./.github/workflows/auto-release.yml
-    permissions:
-      contents: write
-
   build-gate:
     needs:
       - build
       - verify
       - release
-      - auto-release
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
@@ -237,9 +229,8 @@ jobs:
           BUILD: ${{ needs.build.result }}
           VERIFY: ${{ needs.verify.result }}
           RELEASE: ${{ needs.release.result }}
-          AUTO_RELEASE: ${{ needs.auto-release.result }}
         run: |
-          RESULTS=("$BUILD" "$VERIFY" "$RELEASE" "$AUTO_RELEASE")
+          RESULTS=("$BUILD" "$VERIFY" "$RELEASE")
 
           for result in "${RESULTS[@]}"; do
             if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then

@@ -12,6 +12,7 @@ jobs:
   auto-tag:
     name: Generate Version Tag
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920

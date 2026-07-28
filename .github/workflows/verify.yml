@@ -14,11 +14,20 @@ on:
       egress-policy:
         required: false
         type: string
-        default: "audit"
+        default: "block"
       test-allowed-endpoints:
         required: false
         type: string
-        default: ""
+        default: >
+          github.com:443
+          repo.maven.apache.org:443
+          repo1.maven.org:443
+          api.github.com:443
+          repo.spring.io:443
+          repository.jboss.org:443
+          objects.githubusercontent.com:443
+          release-assets.githubusercontent.com:443
+          github-releases.githubusercontent.com:443
       security-allowed-endpoints:
         required: false
         type: string
@@ -26,7 +35,23 @@ on:
       test-args:
         required: false
         type: string
-        default: ""
+        default: >
+          api.github.com:443
+          github.com:443
+          ghcr.io:443
+          pkg-containers.githubusercontent.com:443
+          release-assets.githubusercontent.com:443
+          repo.maven.apache.org:443
+          repo.spring.io:443
+          repository.jboss.org:443
+          uploads.github.com:443
+          objects.githubusercontent.com:443
+          github-releases.githubusercontent.com:443
+          raw.githubusercontent.com:443
+          check.trivy.dev:443
+          get.anchore.io:443
+          timestamp.sigstore.dev:443
+          mirror.gcr.io:443
     secrets:
       extra-secrets:
         required: false

@@ -1,0 +1,52 @@
+name: Cache Cleanup Module
+description: Delete GitHub Actions caches outside the retention policy (non-default-branch caches, plus anything past the retention window)
+
+inputs:
+  keep-ref:
+    description: "Ref whose caches are kept regardless of age (e.g. refs/heads/main)"
+    required: false
+    default: 'refs/heads/main'
+  retention-days:
+    description: "Delete caches older than this many days, even on keep-ref"
+    required: false
+    default: '5'
+  github-token:
+    description: "Token used to list/delete caches (needs 'actions: write')"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Delete stale or non-default-branch caches
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        KEEP_REF: ${{ inputs.keep-ref }}
+        RETENTION_DAYS: ${{ inputs.retention-days }}
+      run: |
+        set -euo pipefail
+
+        cutoff_epoch=$(date -u -d "-${RETENTION_DAYS} days" +%s)
+        deleted=0
+
+        # Page through every cache; -L caps the list, raise it if the repo has more.
+        gh cache list --json id,ref,key,createdAt,sizeInBytes -L 1000 \
+          | jq -c '.[]' | while read -r entry; do
+              id=$(jq -r '.id' <<<"$entry")
+              ref=$(jq -r '.ref' <<<"$entry")
+              key=$(jq -r '.key' <<<"$entry")
+              created=$(jq -r '.createdAt' <<<"$entry")
+              created_epoch=$(date -u -d "$created" +%s)
+
+              # 1) Anything not on the kept ref (PR branches, feature branches).
+              if [[ "$ref" != "$KEEP_REF" ]]; then
+                echo "Deleting '$key' (id=$id) — ref '$ref' is not '$KEEP_REF'"
+                gh cache delete "$id" || true
+              # 2) Kept-ref caches that are past the retention window.
+              elif (( created_epoch < cutoff_epoch )); then
+                echo "Deleting '$key' (id=$id) on '$ref' — older than ${RETENTION_DAYS}d"
+                gh cache delete "$id" || true
+              else
+                echo "Keeping '$key' (id=$id) on '$ref'"
+              fi
+            done

@@ -105,10 +105,13 @@ reusable workflow that **fans its jobs out in parallel** internally:
 3. When *all* of verify passes, **`release`** runs — `tag` and `docker-publish` run
    **in parallel**; on a push to `main`, **`verify-image`** then re-checks the pushed
    image's cosign signature before the stage is allowed to succeed.
-4. **`build-gate`** waits on all three stages and is the single required status check.
+4. On a push to `main`, once `release` succeeds, **`auto-release`** cuts the version tag
+   and GitHub Release. It `needs: release`, so a failed build/verify/release never
+   produces a release. Skipped on pull requests.
+5. **`build-gate`** waits on all stages and is the single required status check.
 
-`auto-release` is a **separate, standalone** workflow (`on: push` to `main`) — not part
-of the master pipeline.
+`auto-release` is orchestrated **inside** the master pipeline (gated on `release`) — it
+is no longer a standalone `on: push` workflow, so a failing pipeline cannot trigger it.
 
 ```mermaid
 flowchart TD
@@ -132,14 +135,16 @@ flowchart TD
         D --> V
     end
 
-    G["<b>4 · build-gate</b><br/>required status check"]:::s5
+    AR["<b>4 · auto-release</b><br/>SemVer tag + GitHub Release<br/>push → main only"]:::ind
+
+    G["<b>5 · build-gate</b><br/>required status check"]:::s5
 
     B --> P2
     P2 --> P3
+    P3 --> AR
     P3 --> G
+    AR --> G
     B -. gate needs all stages .-> G
-
-    T -.-> AR["auto-release<br/>standalone · on push → main"]:::ind
 
     classDef trig fill:#f1f5f9,stroke:#334155,color:#0b1324;
     classDef s1 fill:#dbeafe,stroke:#1d4ed8,color:#0b1324;
@@ -152,8 +157,9 @@ flowchart TD
 
 > **The whole of stage 2 gates stage 3.** `release` does `needs: verify`, so *both* `tag`
 > and `docker-publish` wait for **all four** verify jobs (lint included) to finish.
-> `build-gate` does `needs: [build, verify, release]` and fails the run if any of them
-> failed or was cancelled.
+> `build-gate` does `needs: [build, verify, release, auto-release]` and fails the run if
+> any of them failed or was cancelled (`auto-release` is skipped on PRs, which is not a
+> failure).
 
 ### Flow by event
 
@@ -161,8 +167,8 @@ flowchart TD
   { tag · docker-build (no push) } → build-gate`. No image is pushed or signed.
 - **Push → `main`:** `build → { lint · unit · integration · security } →
   docker-publish (image → GHCR, scanned + signed) → verify-image (cosign verify) →
-  build-gate`. `tag` is skipped (PR-only), and `auto-release.yml` fires independently to
-  cut a release.
+  auto-release (tag + GitHub Release) → build-gate`. `tag` is skipped (PR-only), and
+  `auto-release` runs only after `release` succeeds.
 
 ---
 
@@ -178,8 +184,8 @@ flowchart TD
 | 3 | **tag** | `tag.yml` | PR → `main` | Tags the PR build (`pr-<n>-run-<run>`) and prunes old PR tags (keeps the latest 4). |
 | 3 | **docker-publish** | `docker.yml` | `push`, or same-repo PR (pushes only on `push`) | Builds an OCI image via Spring Boot Buildpacks, **Trivy-scans** it (fails on fixable HIGH/CRITICAL; vuln DB cached via `actions/cache`), emits a **CycloneDX SBOM** artifact, pushes to **GHCR**, **signs** the pushed image with cosign (keyless/OIDC), then prunes old images (keeps the latest 3). |
 | 3 | **verify-image** | `release.yml` | push → `main` | Runs `cosign verify` against the exact **digest** `docker-publish` pushed and signed (not a mutable tag) — asserting a keyless signature whose certificate identity matches `signer-identity-regexp` and whose OIDC issuer is GitHub Actions. Fails the release stage if the signature is missing or untrusted. |
-| 4 | **build-gate** | inline | `always()` | Fails the run if any of `build` / `verify` / `release` failed or was cancelled. The single required status check. |
-| — | **auto-release** | `auto-release.yml` | push → `main` | Standalone workflow: bumps a SemVer patch tag, creates a GitHub Release with notes, keeps the latest 10. |
+| 4 | **auto-release** | `auto-release.yml` | push → `main`, after `release` succeeds | Bumps a SemVer patch tag, creates a GitHub Release with notes, keeps the latest 10. Gated on `release`, so a failed pipeline never cuts a release. |
+| 5 | **build-gate** | inline | `always()` | Fails the run if any of `build` / `verify` / `release` / `auto-release` failed or was cancelled. The single required status check. |
 
 ---
 
@@ -232,7 +238,7 @@ what each stage needs:
 │   ├── release.yml                 # Fan-out wrapper: tag + docker-publish
 │   ├── tag.yml                     # PR build tagging
 │   ├── docker.yml                  # Buildpack image → Trivy → SBOM → GHCR → cosign
-│   └── auto-release.yml            # SemVer tag + GitHub Release (standalone, push to main)
+│   └── auto-release.yml            # SemVer tag + GitHub Release (pipeline stage, gated on release)
 ├── actions/
 │   ├── java-setup/                 # Composite: Temurin JDK + Maven cache + MAVEN_OPTS
 │   └── ghcr-cleanup/               # Composite: GHCR image retention (with retry)

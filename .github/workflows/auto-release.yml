@@ -1,7 +1,9 @@
 name: Auto-Release Module
 
 on:
-  workflow_call:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: write

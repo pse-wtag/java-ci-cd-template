@@ -14,11 +14,29 @@ on:
       egress-policy:
         required: false
         type: string
-        default: "audit"
+        default: "block"
       docker-allowed-endpoints:
         required: false
         type: string
-        default: ""
+        default: >
+          auth.docker.io:443
+          ghcr.io:443
+          github.com:443
+          production.cloudfront.docker.com:443
+          registry-1.docker.io:443
+          release-assets.githubusercontent.com:443
+          repo1.maven.org:443
+          api.github.com:443
+          objects.githubusercontent.com:443
+          pkg-containers.githubusercontent.com:443
+          fulcio.sigstore.dev:443
+          rekor.sigstore.dev:443
+          tuf-repo-cdn.sigstore.dev:443
+          mirror.gcr.io:443
+          github-releases.githubusercontent.com:443
+          raw.githubusercontent.com:443
+          toolbox-data.anchore.io:443
+          timestamp.sigstore.dev:443
       spring-boot-args:
         required: false
         type: string
@@ -79,7 +97,7 @@ jobs:
         uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
+          username: ${{ github.repository_owner }}
           password: ${{ secrets.CR_PAT || github.token }}
 
       - name: Install Cosign

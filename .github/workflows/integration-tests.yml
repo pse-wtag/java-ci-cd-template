@@ -7,12 +7,21 @@ on:
         description: Harden runner policy (audit or block)
         required: false
         type: string
-        default: "audit"
+        default: "block"
       allowed-endpoints:
         description: Allowed endpoints when policy is block
         required: false
         type: string
-        default: ""
+        default: >
+          github.com:443
+          repo.maven.apache.org:443
+          repo1.maven.org:443
+          api.github.com:443
+          repo.spring.io:443
+          repository.jboss.org:443
+          objects.githubusercontent.com:443
+          release-assets.githubusercontent.com:443
+          github-releases.githubusercontent.com:443
       java-version:
         required: false
         type: string

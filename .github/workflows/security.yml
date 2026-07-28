@@ -7,12 +7,28 @@ on:
         description: Harden runner policy (audit or block)
         required: false
         type: string
-        default: "audit"
+        default: "block"
       allowed-endpoints:
         description: Allowed endpoints when policy is block
         required: false
         type: string
-        default: ""
+        default: >
+          api.github.com:443
+          github.com:443
+          ghcr.io:443
+          pkg-containers.githubusercontent.com:443
+          release-assets.githubusercontent.com:443
+          repo.maven.apache.org:443
+          repo.spring.io:443
+          repository.jboss.org:443
+          uploads.github.com:443
+          objects.githubusercontent.com:443
+          github-releases.githubusercontent.com:443
+          raw.githubusercontent.com:443
+          check.trivy.dev:443
+          get.anchore.io:443
+          timestamp.sigstore.dev:443
+          mirror.gcr.io:443
       java-version:
         required: false
         type: string
@@ -126,8 +142,9 @@ jobs:
         id: trivy-date
         run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Trivy vulnerability DB
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
+      - name: Restore Trivy vulnerability DB
+        id: trivy-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
           path: ${{ github.workspace }}/.cache/trivy
           key: trivy-db-${{ steps.trivy-date.outputs.date }}
@@ -147,3 +164,10 @@ jobs:
           exit-code: '1'
           format: table
           cache-dir: ${{ github.workspace }}/.cache/trivy
+
+      - name: Save Trivy vulnerability DB
+        if: github.ref == 'refs/heads/main' && steps.trivy-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ github.workspace }}/.cache/trivy
+          key: trivy-db-${{ steps.trivy-date.outputs.date }}

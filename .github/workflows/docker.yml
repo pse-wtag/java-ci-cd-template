@@ -7,12 +7,30 @@ on:
         description: Harden runner policy (audit or block)
         required: false
         type: string
-        default: "audit"
+        default: "block"
       allowed-endpoints:
         description: Allowed endpoints when policy is block
         required: false
         type: string
-        default: ""
+        default: >
+          auth.docker.io:443
+          ghcr.io:443
+          github.com:443
+          production.cloudfront.docker.com:443
+          registry-1.docker.io:443
+          release-assets.githubusercontent.com:443
+          repo1.maven.org:443
+          api.github.com:443
+          objects.githubusercontent.com:443
+          pkg-containers.githubusercontent.com:443
+          fulcio.sigstore.dev:443
+          rekor.sigstore.dev:443
+          tuf-repo-cdn.sigstore.dev:443
+          mirror.gcr.io:443
+          github-releases.githubusercontent.com:443
+          raw.githubusercontent.com:443
+          toolbox-data.anchore.io:443
+          timestamp.sigstore.dev:443
       java-version:
         required: false
         type: string
@@ -70,10 +88,11 @@ jobs:
           cache-type: ${{ inputs.cache-type }}
 
       - name: Login to Github Container Registry
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
+          username: ${{ github.repository_owner }}
           password: ${{ secrets.CR_PAT || github.token }}
 
       - name: Make Maven wrappers executable
@@ -121,8 +140,9 @@ jobs:
         id: trivy-date
         run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Trivy vulnerability DB
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
+      - name: Restore Trivy vulnerability DB
+        id: trivy-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
           path: ${{ github.workspace }}/.cache/trivy
           key: trivy-db-${{ steps.trivy-date.outputs.date }}
@@ -140,6 +160,13 @@ jobs:
           exit-code: '1'
           format: table
           cache-dir: ${{ github.workspace }}/.cache/trivy
+
+      - name: Save Trivy vulnerability DB
+        if: github.ref == 'refs/heads/main' && steps.trivy-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ github.workspace }}/.cache/trivy
+          key: trivy-db-${{ steps.trivy-date.outputs.date }}
 
       - name: Generate SBOM (Syft)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610

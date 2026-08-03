@@ -89,7 +89,7 @@ That's the whole integration. Everything below is driven from that one call.
    ```
 
 > Forking into another org? Update the `uses:` path in the caller **and** the
-> `pse-wtag/java-ci-cd-template/...@v0.0.3` composite-action references inside the reusable
+> `pse-wtag/java-ci-cd-template/...@c8a996c309864d873d441c0fd74c2b69f1ee5fdc` composite-action references inside the reusable
 > workflows to point at your fork.
 
 ---

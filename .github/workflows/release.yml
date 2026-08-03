@@ -15,29 +15,11 @@ on:
         required: false
         type: string
         default: "block"
-      docker-allowed-endpoints:
+      extra-docker-endpoints:
+        description: Extra endpoints appended to the docker-publish and verify-image allowlists
         required: false
         type: string
-        default: >
-          auth.docker.io:443
-          ghcr.io:443
-          github.com:443
-          production.cloudfront.docker.com:443
-          registry-1.docker.io:443
-          release-assets.githubusercontent.com:443
-          repo.maven.apache.org:443
-          repo1.maven.org:443
-          api.github.com:443
-          objects.githubusercontent.com:443
-          pkg-containers.githubusercontent.com:443
-          fulcio.sigstore.dev:443
-          rekor.sigstore.dev:443
-          tuf-repo-cdn.sigstore.dev:443
-          mirror.gcr.io:443
-          github-releases.githubusercontent.com:443
-          raw.githubusercontent.com:443
-          toolbox-data.anchore.io:443
-          timestamp.sigstore.dev:443
+        default: ""
       spring-boot-args:
         required: false
         type: string
@@ -76,7 +58,7 @@ jobs:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
       egress-policy: ${{ inputs.egress-policy }}
-      allowed-endpoints: ${{ inputs.docker-allowed-endpoints }}
+      extra-allowed-endpoints: ${{ inputs.extra-docker-endpoints }}
       spring-boot-args: ${{ inputs.spring-boot-args }}
 
   verify-image:
@@ -92,7 +74,19 @@ jobs:
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
           egress-policy: ${{ inputs.egress-policy }}
-          allowed-endpoints: ${{ inputs.docker-allowed-endpoints }}
+          allowed-endpoints: >
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            github.com:443
+            api.github.com:443
+            fulcio.sigstore.dev:443
+            rekor.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
+            timestamp.sigstore.dev:443
+            release-assets.githubusercontent.com:443
+            objects.githubusercontent.com:443
+            github-releases.githubusercontent.com:443
+            ${{ inputs.extra-docker-endpoints }}
 
       - name: Login to Github Container Registry
         uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7

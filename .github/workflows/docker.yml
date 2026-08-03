@@ -32,6 +32,11 @@ on:
           raw.githubusercontent.com:443
           toolbox-data.anchore.io:443
           timestamp.sigstore.dev:443
+      extra-allowed-endpoints:
+        description: Extra endpoints appended to allowed-endpoints (base list stays intact)
+        required: false
+        type: string
+        default: ""
       java-version:
         required: false
         type: string
@@ -76,14 +81,16 @@ jobs:
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
           egress-policy: ${{ inputs.egress-policy }}
-          allowed-endpoints: ${{ inputs.allowed-endpoints }}
+          allowed-endpoints: >
+            ${{ inputs.allowed-endpoints }}
+            ${{ inputs.extra-allowed-endpoints }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Setup Java Environment
-        uses: pse-wtag/java-ci-cd-template/.github/actions/java-setup@v0.0.3
+        uses: pse-wtag/java-ci-cd-template/.github/actions/java-setup@c8a996c309864d873d441c0fd74c2b69f1ee5fdc
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
@@ -218,7 +225,7 @@ jobs:
 
       - name: GHCR Cleanup (With Auto-retry)
         if: github.event_name != 'pull_request'
-        uses: pse-wtag/java-ci-cd-template/.github/actions/ghcr-cleanup@v0.0.3
+        uses: pse-wtag/java-ci-cd-template/.github/actions/ghcr-cleanup@c8a996c309864d873d441c0fd74c2b69f1ee5fdc
         with:
           image-name: ${{ github.event.repository.name }}
           pat-token: ${{ secrets.CR_PAT || github.token }}

@@ -31,94 +31,23 @@ on:
         required: false
         type: string
         default: "block"
-      build-allowed-endpoints:
-        required: false
-        type: string
-        default: >
-          github.com:443
-          repo.maven.apache.org:443
-          repo1.maven.org:443
-          api.github.com:443
-          repo.spring.io:443
-          repository.jboss.org:443
-          objects.githubusercontent.com:443
-          release-assets.githubusercontent.com:443
-          github-releases.githubusercontent.com:443
       extra-build-endpoints:
+        description: Extra endpoints appended to the build phase base allowlist
         required: false
         type: string
         default: ""
-      test-allowed-endpoints:
-        required: false
-        type: string
-        default: >
-          github.com:443
-          repo.maven.apache.org:443
-          repo1.maven.org:443
-          api.github.com:443
-          repo.spring.io:443
-          repository.jboss.org:443
-          objects.githubusercontent.com:443
-          release-assets.githubusercontent.com:443
-          github-releases.githubusercontent.com:443
-          auth.docker.io:443
-          registry-1.docker.io:443
-          production.cloudfront.docker.com:443
-          quay.io:443
-          cdn.quay.io:443
       extra-test-endpoints:
+        description: Extra endpoints appended to the lint/unit/integration base allowlists
         required: false
         type: string
         default: ""
-      security-allowed-endpoints:
-        required: false
-        type: string
-        default: >
-          api.github.com:443
-          github.com:443
-          ghcr.io:443
-          pkg-containers.githubusercontent.com:443
-          release-assets.githubusercontent.com:443
-          repo.maven.apache.org:443
-          repo.spring.io:443
-          repository.jboss.org:443
-          uploads.github.com:443
-          objects.githubusercontent.com:443
-          github-releases.githubusercontent.com:443
-          raw.githubusercontent.com:443
-          check.trivy.dev:443
-          get.trivy.dev:443
-          get.anchore.io:443
-          timestamp.sigstore.dev:443
-          mirror.gcr.io:443
       extra-security-endpoints:
+        description: Extra endpoints appended to the security-scan base allowlist
         required: false
         type: string
         default: ""
-      docker-allowed-endpoints:
-        required: false
-        type: string
-        default: >
-          auth.docker.io:443
-          ghcr.io:443
-          github.com:443
-          production.cloudfront.docker.com:443
-          registry-1.docker.io:443
-          release-assets.githubusercontent.com:443
-          repo.maven.apache.org:443
-          repo1.maven.org:443
-          api.github.com:443
-          objects.githubusercontent.com:443
-          pkg-containers.githubusercontent.com:443
-          fulcio.sigstore.dev:443
-          rekor.sigstore.dev:443
-          tuf-repo-cdn.sigstore.dev:443
-          mirror.gcr.io:443
-          github-releases.githubusercontent.com:443
-          raw.githubusercontent.com:443
-          toolbox-data.anchore.io:443
-          timestamp.sigstore.dev:443
       extra-docker-endpoints:
+        description: Extra endpoints appended to the docker-publish and verify-image allowlists
         required: false
         type: string
         default: ""
@@ -170,9 +99,7 @@ jobs:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
       egress-policy: ${{ inputs.build-egress-policy }}
-      allowed-endpoints: >
-        ${{ inputs.build-allowed-endpoints }}
-        ${{ inputs.extra-build-endpoints }}
+      extra-allowed-endpoints: ${{ inputs.extra-build-endpoints }}
 
   verify:
     needs: build
@@ -186,12 +113,8 @@ jobs:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
       egress-policy: ${{ inputs.build-egress-policy }}
-      test-allowed-endpoints: >
-        ${{ inputs.test-allowed-endpoints }}
-        ${{ inputs.extra-test-endpoints }}
-      security-allowed-endpoints: >
-        ${{ inputs.security-allowed-endpoints }}
-        ${{ inputs.extra-security-endpoints }}
+      extra-test-endpoints: ${{ inputs.extra-test-endpoints }}
+      extra-security-endpoints: ${{ inputs.extra-security-endpoints }}
       test-args: ${{ inputs.test-args }}
     secrets:
       extra-secrets: ${{ secrets.extra-secrets }}
@@ -209,9 +132,7 @@ jobs:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
       egress-policy: ${{ inputs.release-egress-policy }}
-      docker-allowed-endpoints: >
-        ${{ inputs.docker-allowed-endpoints }}
-        ${{ inputs.extra-docker-endpoints }}
+      extra-docker-endpoints: ${{ inputs.extra-docker-endpoints }}
       spring-boot-args: ${{ inputs.spring-boot-args }}
       signer-identity-regexp: ${{ inputs.signer-identity-regexp }}
 

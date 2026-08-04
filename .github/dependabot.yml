@@ -4,7 +4,14 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-      day: monday
+      day: "monday"
+      time: "09:00"
+      timezone: "Etc/UTC"
+    cooldown:
+      default-days: 7
+      semver-major-days: 10
+      semver-minor-days: 7
+      semver-patch-days: 3
     open-pull-requests-limit: 5
     commit-message:
       prefix: "ci"
@@ -12,5 +19,9 @@ updates:
     labels:
       - "dependencies"
       - "ci-cd"
+    groups:
+      all-github-action:
+        patterns:
+          - "*"
     pull-request-branch-name:
       separator: _

@@ -74,6 +74,7 @@ jobs:
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
           egress-policy: ${{ inputs.egress-policy }}
+          disable-sudo: true
           allowed-endpoints: >
             ghcr.io:443
             pkg-containers.githubusercontent.com:443

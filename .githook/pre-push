@@ -49,7 +49,9 @@ fi
 # 2. Yamllint (Validates general YAML syntax)
 if command -v yamllint >/dev/null 2>&1; then
   echo "[pre-push] Running yamllint..."
-  if ! (cd "$ROOT" && yamllint -d relaxed .); then
+  # No -d flag: that would override the repo's .yamllint.yml. Config is
+  # discovered from $ROOT so the hook and any CI run share one ruleset.
+  if ! (cd "$ROOT" && yamllint --strict .); then
     FAILED=1
   fi
 else

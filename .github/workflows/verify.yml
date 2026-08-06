@@ -36,6 +36,8 @@ on:
 jobs:
   lint:
     uses: ./.github/workflows/lint.yml
+    permissions:
+      contents: read
     with:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}

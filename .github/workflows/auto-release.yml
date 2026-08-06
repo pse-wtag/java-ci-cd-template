@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: auto-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   auto-tag:
     name: Generate Version Tag
@@ -18,6 +22,7 @@ jobs:
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
           egress-policy: block
+          disable-sudo: true
           allowed-endpoints: >
             github.com:443
             api.github.com:443

@@ -101,6 +101,18 @@ jobs:
       egress-policy: ${{ inputs.build-egress-policy }}
       extra-allowed-endpoints: ${{ inputs.extra-build-endpoints }}
 
+  dependency-graph:
+    needs: build
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/dependency-graph.yml
+    permissions:
+      contents: write
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.build-egress-policy }}
+      extra-allowed-endpoints: ${{ inputs.extra-build-endpoints }}
+
   verify:
     needs: build
     uses: ./.github/workflows/verify.yml
@@ -139,6 +151,7 @@ jobs:
   build-gate:
     needs:
       - build
+      - dependency-graph
       - verify
       - release
     runs-on: ubuntu-latest
@@ -150,14 +163,18 @@ jobs:
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
           egress-policy: block
+          disable-sudo: true
 
       - name: Check pipeline result
         env:
           BUILD: ${{ needs.build.result }}
+          DEPGRAPH: ${{ needs.dependency-graph.result }}
           VERIFY: ${{ needs.verify.result }}
           RELEASE: ${{ needs.release.result }}
         run: |
-          RESULTS=("$BUILD" "$VERIFY" "$RELEASE")
+          # "skipped" is not a failure: dependency-graph is push-only, and the
+          # release phase skips jobs depending on the event.
+          RESULTS=("$BUILD" "$DEPGRAPH" "$VERIFY" "$RELEASE")
 
           for result in "${RESULTS[@]}"; do
             if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then

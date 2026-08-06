@@ -30,18 +30,21 @@ on:
 # top level so the pipeline can tag, push to GHCR, upload CodeQL results, and — most
 # importantly — mint an OIDC token for keyless image signing (id-token).
 permissions:
-  contents: write        # PR build tags
+  contents: write        # PR build tags + dependency graph submission
   packages: write        # push image to GHCR
   security-events: write # CodeQL SARIF upload
   id-token: write        # cosign keyless signing (REQUIRED — defaults to none)
   actions: read
   checks: write
-  pull-requests: write
 
 jobs:
   pipeline:
     uses: pse-wtag/java-ci-cd-template/.github/workflows/master-maven-pipeline.yml@main
-    secrets: inherit
+    # Forward secrets explicitly. `secrets: inherit` would hand this pipeline your
+    # entire secret store, so any secret the template reads in future — including
+    # one added by a compromised update — would be readable from your repo.
+    secrets:
+      CR_PAT: ${{ secrets.CR_PAT }}
     with:
       java-version: "25"
 ```
@@ -211,8 +214,8 @@ All inputs pass through `master-maven-pipeline.yml`. The most useful ones:
 
 ### Secrets
 
-The consumer passes secrets with `secrets: inherit`; the master pipeline forwards only
-what each stage needs:
+The consumer forwards secrets **explicitly** (never `secrets: inherit`); the master
+pipeline then passes on only what each stage needs:
 
 - **`CR_PAT`** — GHCR push / cleanup token, forwarded explicitly to `docker-publish`
   (falls back to `github.token` when unset). Not broadcast to other stages.
@@ -229,7 +232,8 @@ what each stage needs:
 .github/
 ├── workflows/
 │   ├── master-maven-pipeline.yml   # Orchestrator — the entry point consumers call
-│   ├── build.yml                   # Reject .env, compile & package, submit dep graph
+│   ├── build.yml                   # Reject .env, compile & package (+ dep graph, push only)
+│   ├── workflow-lint.yml           # actionlint + zizmor over this repo's own YAML
 │   ├── verify.yml                  # Fan-out wrapper: lint + tests + security
 │   ├── lint.yml                    # Spotless formatting check
 │   ├── unit-tests.yml              # Unit tests + JUnit report
@@ -294,13 +298,20 @@ pip install yamllint   # not on Chocolatey
 - **Hardened runners** — every job that executes real work runs `step-security/harden-runner`
   with a configurable egress policy and per-stage endpoint allowlists. Build/verify and
   release each carry their own policy (`build-egress-policy` / `release-egress-policy`), both
-  defaulting to `block`.
+  defaulting to `block`. Every job also sets `disable-sudo: true`; containers stay enabled
+  for the jobs that need a Docker daemon (buildpack image builds, Testcontainers).
 - **Pinned actions** — third-party actions are pinned to full commit SHAs; Dependabot
   keeps them current weekly.
+- **Self-linting workflows** — this repo's product *is* workflow YAML, so `workflow-lint.yml`
+  runs `actionlint` and `zizmor` (Actions-specific SAST: template injection, excessive
+  permissions, credential persistence) over `.github/**` on every PR, failing on medium+
+  findings. The same checks run locally in `pre-push`, but hooks are skippable — CI is not.
 - **Secret scanning** — Gitleaks in CI (`security.yml`) *and* locally (`pre-commit`).
 - **Static analysis (SAST)** — CodeQL for `java-kotlin`.
 - **Dependency scanning (SCA)** — Trivy flags known CVEs in declared/transitive deps;
   the build fails on fixable HIGH/CRITICAL (`ignore-unfixed` skips un-actionable ones).
+  A second, non-blocking Trivy pass reports everything the gate drops — unfixed vulns,
+  hardcoded secrets and IaC misconfigurations — so they stay visible rather than silent.
 - **Image scanning** — the built OCI image is Trivy-scanned before it ships, on PRs too.
 - **Cached vuln DB** — both Trivy scans cache the vulnerability database via `actions/cache`
   (keyed per day, with a shared restore fallback) to cut scan time and avoid rate limits.
@@ -314,6 +325,15 @@ pip install yamllint   # not on Chocolatey
   and whose issuer is GitHub Actions. A missing or untrusted signature fails the release.
   Downstream deploys should re-run the same check at admission time (see the consumer
   checklist) rather than trusting the tag alone.
+- **Scan-what-you-sign** — the pushed image's immutable digest is resolved once, right
+  after the push, and that single reference drives the vulnerability scan, the SBOM,
+  the signature and the attestation. Resolving by tag per-step would let the tag move
+  in between, so what was scanned would not provably be what was signed.
+- **Fail-closed SAST** — the CodeQL job distinguishes "code scanning is disabled for this
+  repo" from "the availability probe failed". A rate limit, expired token or transient 5xx
+  fails the job rather than silently skipping analysis while reporting success.
 - **`.env` guard** — the build fails if tracked `.env` files are detected.
-- **Least privilege** — permissions are scoped per job, not globally; `docker-publish`
-  receives only `CR_PAT`, not the whole secret store.
+- **Least privilege** — permissions are scoped per job, not globally, and consumers forward
+  secrets explicitly rather than with `secrets: inherit`. The job that compiles PR-authored
+  code holds a read-only token; dependency-graph submission, which needs `contents: write`,
+  runs in a separate push-only job.

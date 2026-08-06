@@ -28,11 +28,22 @@ runs:
 
     - name: Show cache status
       shell: bash
+      env:
+        CACHE_TYPE: ${{ inputs.cache-type }}
+        CACHE_HIT: ${{ steps.setup-java.outputs.cache-hit }}
       run: |
-        echo "Cache type: ${{ inputs.cache-type }}"
-        echo "Cache hit: ${{ steps.setup-java.outputs.cache-hit}}"
+        echo "Cache type: $CACHE_TYPE"
+        echo "Cache hit: $CACHE_HIT"
 
     - name: Inject Global MAVEN_OPTS
       shell: bash
-      run: |
-        echo "MAVEN_OPTS=${{ inputs.maven-opts }}" >> $GITHUB_ENV
+      env:
+        MAVEN_OPTS_INPUT: ${{ inputs.maven-opts }}
+      run: | # zizmor: ignore[github-env]
+        if printf '%s' "$MAVEN_OPTS_INPUT" | grep -q $'[\n\r]'; then
+          echo "::error::maven-opts must be a single line"
+          exit 1
+        fi
+        # Multi-line values are rejected above and the expansion is quoted, so this
+        # write cannot inject additional variables.
+        printf 'MAVEN_OPTS=%s\n' "$MAVEN_OPTS_INPUT" >> "$GITHUB_ENV"

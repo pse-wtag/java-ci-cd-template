@@ -1,4 +1,4 @@
-name: Build Module
+name: Dependency Graph Module
 
 on:
   workflow_call:
@@ -37,16 +37,16 @@ on:
         default: "maven"
 
 jobs:
-  build:
-    name: Build & Package
+  dependency-graph:
+    name: Submit Dependency Graph
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
           egress-policy: ${{ inputs.egress-policy }}
           disable-sudo: true
@@ -59,15 +59,6 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Reject .env file
-        run: |
-          ENV_FILES=$(git ls-files --cached -- '*.env' ':!:.env.example' | grep -v '\.env\.example$' || true)
-          if [ -n "$ENV_FILES" ]; then
-            echo "::error::Tracked .env files detected – remove them before merging:"
-            echo "$ENV_FILES"
-            exit 1
-          fi
-
       - name: Setup Java Environment
         uses: pse-wtag/java-ci-cd-template/.github/actions/java-setup@1efd6d9cd60af6beeaecf7cb68e14ee52f5f297d
         with:
@@ -77,5 +68,5 @@ jobs:
       - name: Make Maven wrappers executable
         run: chmod +x mvnw
 
-      - name: Compile and Package (Maven)
-        run: ./mvnw -B -ntp -T 1C clean package -DskipTests --file pom.xml
+      - name: Update dependency graph
+        uses: advanced-security/maven-dependency-submission-action@b275d12641ac2d2108b2cbb7598b154ad2f2cee8

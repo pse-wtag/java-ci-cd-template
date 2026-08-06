@@ -64,6 +64,7 @@ jobs:
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
           egress-policy: ${{ inputs.egress-policy }}
+          disable-sudo: true
           allowed-endpoints: >
             ${{ inputs.allowed-endpoints }}
             ${{ inputs.extra-allowed-endpoints }}
@@ -79,7 +80,7 @@ jobs:
           cache-type: ${{ inputs.cache-type }}
 
       - name: Load Extra Secrets to Environment
-        run: |
+        run: | # zizmor: ignore[github-env]
           if [ -z "$EXTRA_SECRETS" ]; then
             echo "No extra secrets provided — skipping."
             exit 0

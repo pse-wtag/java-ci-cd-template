@@ -74,13 +74,14 @@ jobs:
       packages: write
       id-token: write
     outputs:
-      image-digest: ${{ steps.sign.outputs.digest }}
+      image-digest: ${{ steps.ref.outputs.digest }}
     steps:
 
       - name: Harden Runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
           egress-policy: ${{ inputs.egress-policy }}
+          disable-sudo: true
           allowed-endpoints: >
             ${{ inputs.allowed-endpoints }}
             ${{ inputs.extra-allowed-endpoints }}
@@ -113,7 +114,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           SHORT_SHA: ${{ github.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          REGISTRY_ACTOR: ${{ github.actor }}
+          REGISTRY_ACTOR: ${{ github.repository_owner }}
           REGISTRY_PASSWORD: ${{ secrets.CR_PAT || github.token }}
           SPRING_BOOT_ARGS: ${{ inputs.spring-boot-args }}
         run: |
@@ -144,6 +145,30 @@ jobs:
           echo "image=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve image reference
+        id: ref
+        env:
+          IMAGE_NAME: ${{ steps.build.outputs.image }}
+          PUBLISH: ${{ steps.build.outputs.publish }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH" != "true" ]; then
+            # Pull-request build: nothing was pushed, so no registry digest exists.
+            # Scan the locally built tag; no signing happens on this path.
+            echo "ref=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
+            echo "digest=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_NAME" 2>/dev/null || true)
+          if [ -z "$DIGEST" ]; then
+            echo "::error::Could not resolve pushed image digest for $IMAGE_NAME"
+            exit 1
+          fi
+          echo "Resolved $IMAGE_NAME -> $DIGEST"
+          echo "ref=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
       - name: Resolve Trivy DB cache date
         id: trivy-date
         run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
@@ -161,7 +186,7 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: image
-          image-ref: ${{ steps.build.outputs.image }}
+          image-ref: ${{ steps.ref.outputs.ref }}
           scanners: vuln
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -179,7 +204,7 @@ jobs:
       - name: Generate SBOM (Syft)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
         with:
-          image: ${{ steps.build.outputs.image }}
+          image: ${{ steps.ref.outputs.ref }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
           upload-artifact: false
@@ -196,24 +221,17 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
 
       - name: Sign published image (keyless)
-        id: sign
         if: steps.build.outputs.publish == 'true'
         env:
-          IMAGE_NAME: ${{ steps.build.outputs.image }}
+          IMAGE_DIGEST: ${{ steps.ref.outputs.digest }}
         run: |
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_NAME")
-          if [ -z "$DIGEST" ]; then
-            echo "::error::Could not resolve pushed image digest for signing"
-            exit 1
-          fi
-          echo "Signing $DIGEST"
-          cosign sign --yes "$DIGEST"
-          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Signing $IMAGE_DIGEST"
+          cosign sign --yes "$IMAGE_DIGEST"
 
       - name: Attest SBOM to image (keyless)
         if: steps.build.outputs.publish == 'true'
         env:
-          IMAGE_DIGEST: ${{ steps.sign.outputs.digest }}
+          IMAGE_DIGEST: ${{ steps.ref.outputs.digest }}
         run: |
           # Bind the CycloneDX SBOM to the exact pushed digest as a signed,
           # in-toto attestation so consumers can verify provenance with

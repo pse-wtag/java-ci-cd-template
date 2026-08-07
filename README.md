@@ -99,30 +99,29 @@ That's the whole integration. Everything below is driven from that one call.
 
 ## Pipeline flow
 
-The master pipeline runs **three sequential stages** plus a final gate. Each stage is a
-reusable workflow that **fans its jobs out in parallel** internally:
+The master pipeline runs **two waves plus a release stage and a final gate**. Each stage
+is a reusable workflow that **fans its jobs out in parallel** internally:
 
-1. **`build`** runs first, alone.
-2. When it passes, **`verify`** runs — its four jobs (lint, unit-tests,
-   integration-tests, security) all start **at once**.
-3. When *all* of verify passes, **`release`** runs — `tag` and `docker-publish` run
-   **in parallel**; on a push to `main`, **`verify-image`** then re-checks the pushed
-   image's cosign signature before the stage is allowed to succeed.
-4. On a push to `main`, once `release` succeeds, **`auto-release`** cuts the version tag
-   and GitHub Release. It `needs: release`, so a failed build/verify/release never
-   produces a release. Skipped on pull requests.
-5. **`build-gate`** waits on all stages and is the single required status check.
-
-`auto-release` is orchestrated **inside** the master pipeline (gated on `release`) — it
-is no longer a standalone `on: push` workflow, so a failing pipeline cannot trigger it.
+1. **`build`** and **`verify`** start **together**, at the trigger — `verify` does not
+   wait on `build`, so the four verify jobs (lint, unit-tests, integration-tests,
+   security) and the packaging build all run at once. This is the main reason a run
+   finishes in roughly the time of its slowest job rather than the sum of two waves.
+2. **`dependency-graph`** runs after `build`, on `push` only. It is split out of `build`
+   so the job that compiles PR-authored code keeps a read-only token while graph
+   submission (which needs `contents: write`) never runs on a PR.
+3. **`release`** does `needs: [build, verify]`, so it waits for the packaging build *and*
+   all four verify jobs. Inside it, `tag` and `docker-publish` run **in parallel**; on a
+   push to `main`, **`verify-image`** then re-checks the pushed image's cosign signature
+   before the stage is allowed to succeed.
+4. **`build-gate`** waits on all of the above and is the single required status check.
 
 ```mermaid
 flowchart TD
     T([Trigger: PR or push to main]):::trig
 
-    T --> B["<b>1 · build</b><br/>reject .env · compile &amp; package"]:::s1
+    B["<b>build</b><br/>reject .env · compile &amp; package"]:::s1
 
-    subgraph P2 ["2 · verify — all run in parallel"]
+    subgraph V ["<b>verify</b> — 4 jobs in parallel"]
         direction LR
         L["lint<br/>Spotless"]:::s2
         U["unit-tests<br/>+ JUnit report"]:::s2
@@ -130,24 +129,27 @@ flowchart TD
         S["security<br/>CodeQL · Gitleaks · Trivy SCA"]:::s3
     end
 
-    subgraph P3 ["3 · release"]
+    DG["<b>dependency-graph</b><br/>submit dep graph · push only"]:::ind
+
+    subgraph R ["<b>release</b> — needs build + verify"]
         direction LR
         TG["tag<br/>PR → main only"]:::s4
         D["docker-publish<br/>build · Trivy · SBOM · push · cosign"]:::s4
-        V["verify-image<br/>cosign verify · push→main only"]:::s4
-        D --> V
+        VI["verify-image<br/>cosign verify · push→main only"]:::s4
+        D --> VI
     end
 
-    AR["<b>4 · auto-release</b><br/>SemVer tag + GitHub Release<br/>push → main only"]:::ind
+    G["<b>build-gate</b><br/>required status check"]:::s5
 
-    G["<b>5 · build-gate</b><br/>required status check"]:::s5
-
-    B --> P2
-    P2 --> P3
-    P3 --> AR
-    P3 --> G
-    AR --> G
-    B -. gate needs all stages .-> G
+    T --> B
+    T --> V
+    B --> DG
+    B --> R
+    V --> R
+    B -. gate needs every stage .-> G
+    DG --> G
+    V --> G
+    R --> G
 
     classDef trig fill:#f1f5f9,stroke:#334155,color:#0b1324;
     classDef s1 fill:#dbeafe,stroke:#1d4ed8,color:#0b1324;
@@ -158,37 +160,60 @@ flowchart TD
     classDef ind fill:#e5e7eb,stroke:#6b7280,color:#0b1324;
 ```
 
-> **The whole of stage 2 gates stage 3.** `release` does `needs: verify`, so *both* `tag`
-> and `docker-publish` wait for **all four** verify jobs (lint included) to finish.
-> `build-gate` does `needs: [build, verify, release, auto-release]` and fails the run if
-> any of them failed or was cancelled (`auto-release` is skipped on PRs, which is not a
-> failure).
+> **The whole of verify gates release.** `release` does `needs: [build, verify]`, so
+> *both* `tag` and `docker-publish` wait for **all four** verify jobs (lint included) to
+> finish. `build-gate` does `needs: [build, dependency-graph, verify, release]` and fails
+> the run if any of them failed or was cancelled. `skipped` is **not** a failure —
+> `dependency-graph` is push-only and the release jobs skip by event.
 
 ### Flow by event
 
-- **Pull request → `main`:** `build → { lint · unit · integration · security } →
-  { tag · docker-build (no push) } → build-gate`. No image is pushed or signed.
-- **Push → `main`:** `build → { lint · unit · integration · security } →
-  docker-publish (image → GHCR, scanned + signed) → verify-image (cosign verify) →
-  auto-release (tag + GitHub Release) → build-gate`. `tag` is skipped (PR-only), and
-  `auto-release` runs only after `release` succeeds.
+- **Pull request → `main`:** `{ build · lint · unit · integration · security } →
+  { tag · docker-build (no push) } → build-gate`. `dependency-graph` is skipped, and no
+  image is pushed or signed.
+- **Push → `main`:** `{ build · lint · unit · integration · security } →
+  { dependency-graph · docker-publish (image → GHCR, scanned + signed) → verify-image
+  (cosign verify) } → build-gate`. `tag` is skipped (PR-only).
+
+### Releases are a separate workflow
+
+**`auto-release.yml` is *not* a stage of the master pipeline.** It is a standalone
+`on: push` → `main` workflow living in this repo, with its own concurrency group, that
+bumps a SemVer patch tag, cuts a GitHub Release and prunes to the latest 10.
+
+Two consequences worth knowing:
+
+- Because it triggers on the push rather than on `release` succeeding, **a failing
+  pipeline does not stop it** — a release can be cut for a commit whose build or scans
+  failed.
+- Because it is a plain `on: push` workflow rather than something
+  `master-maven-pipeline.yml` calls, **consumer repos do not get it** by calling the
+  master pipeline. Copy `.github/workflows/auto-release.yml` into your repo if you want
+  automatic releases there.
 
 ---
 
 ## The jobs
 
-| # | Job | Workflow | Runs when | What it does |
-|---|-----|----------|-----------|--------------|
-| 1 | **build** | `build.yml` | always | Rejects tracked `.env` files, compiles & packages (`clean package -DskipTests`), submits the dependency graph on `push`. |
-| 2 | **lint** | `lint.yml` | always | Verifies code formatting with Spotless (`spotless:check`). |
-| 2 | **unit-tests** | `unit-tests.yml` | always | Runs `mvn test` and publishes a JUnit report. |
-| 2 | **integration-tests** | `integration-tests.yml` | always | Optionally exposes curated `extra-secrets` (never `GITHUB_TOKEN`), runs `mvn verify -Dsurefire.skip=true`, publishes a JUnit report. |
-| 2 | **security** | `security.yml` | always | Three parallel scanners — **CodeQL** SAST (`java-kotlin`, self-skips when Code Scanning is off), **Gitleaks** secret scan, and **Trivy** dependency (SCA) scan that fails on *fixable* HIGH/CRITICAL CVEs. The Trivy vulnerability DB is cached across runs (`actions/cache`). |
-| 3 | **tag** | `tag.yml` | PR → `main` | Tags the PR build (`pr-<n>-run-<run>`) and prunes old PR tags (keeps the latest 4). |
-| 3 | **docker-publish** | `docker.yml` | `push`, or same-repo PR (pushes only on `push`) | Builds an OCI image via Spring Boot Buildpacks, **Trivy-scans** it (fails on fixable HIGH/CRITICAL; vuln DB cached via `actions/cache`), emits a **CycloneDX SBOM** artifact, pushes to **GHCR**, **signs** the pushed image with cosign (keyless/OIDC), then prunes old images (keeps the latest 3). |
-| 3 | **verify-image** | `release.yml` | push → `main` | Runs `cosign verify` against the exact **digest** `docker-publish` pushed and signed (not a mutable tag) — asserting a keyless signature whose certificate identity matches `signer-identity-regexp` and whose OIDC issuer is GitHub Actions. Fails the release stage if the signature is missing or untrusted. |
-| 4 | **auto-release** | `auto-release.yml` | push → `main`, after `release` succeeds | Bumps a SemVer patch tag, creates a GitHub Release with notes, keeps the latest 10. Gated on `release`, so a failed pipeline never cuts a release. |
-| 5 | **build-gate** | inline | `always()` | Fails the run if any of `build` / `verify` / `release` / `auto-release` failed or was cancelled. The single required status check. |
+| Stage | Job | Workflow | Runs when | What it does |
+|-------|-----|----------|-----------|--------------|
+| build | **build** | `build.yml` | always | Rejects tracked `.env` files, then compiles & packages (`clean package -DskipTests -T 1C`). Read-only token. |
+| build | **dependency-graph** | `dependency-graph.yml` | `push`, after `build` | Submits the Maven dependency graph to GitHub. Split out of `build` because it needs `contents: write`. |
+| verify | **lint** | `lint.yml` | always | Verifies code formatting with Spotless (`spotless:check`). |
+| verify | **unit-tests** | `unit-tests.yml` | always | Runs `mvn test` and publishes a JUnit report. |
+| verify | **integration-tests** | `integration-tests.yml` | always | Optionally exposes curated `extra-secrets` (never `GITHUB_TOKEN`), runs `mvn verify -Dsurefire.skip=true`, publishes a JUnit report. |
+| verify | **security** | `security.yml` | always | Three parallel scanners — **CodeQL** SAST (`java-kotlin`, `build-mode: manual`, self-skips when Code Scanning is off), **Gitleaks** secret scan, and **Trivy** dependency (SCA) scan that fails on *fixable* HIGH/CRITICAL CVEs plus a non-blocking full report. The Trivy vulnerability DB is cached across runs (`actions/cache`). |
+| release | **tag** | `tag.yml` | same-repo PR → `main` | Tags the PR build (`pr-<n>-run-<run>`) and prunes old PR tags (keeps the latest 4). |
+| release | **docker-publish** | `docker.yml` | `push`, or same-repo PR (pushes only on `push`) | Builds an OCI image via Spring Boot Buildpacks, resolves its **digest**, **Trivy-scans** it (fails on fixable HIGH/CRITICAL; vuln DB cached via `actions/cache`), emits a **CycloneDX SBOM** artifact, **signs** the pushed image and **attests the SBOM** with cosign (keyless/OIDC), then prunes old GHCR images (keeps the latest 3). |
+| release | **verify-image** | `release.yml` | push → `main`, after `docker-publish` | Runs `cosign verify` against the exact **digest** `docker-publish` pushed and signed (not a mutable tag) — asserting a keyless signature whose certificate identity matches `signer-identity-regexp` and whose OIDC issuer is GitHub Actions. Fails the release stage if the signature is missing or untrusted. |
+| gate | **build-gate** | inline | `always()` | Fails the run if any of `build` / `dependency-graph` / `verify` / `release` failed or was cancelled. The single required status check. |
+
+Outside the pipeline, two workflows run on their own triggers:
+
+| Job | Workflow | Runs when | What it does |
+|-----|----------|-----------|--------------|
+| **auto-tag** | `auto-release.yml` | `on: push` → `main` (this repo only) | Bumps a SemVer patch tag, creates a GitHub Release with generated notes, keeps the latest 10. Not gated on the pipeline — see [Releases are a separate workflow](#releases-are-a-separate-workflow). |
+| **actionlint / zizmor** | `workflow-lint.yml` | `on: push` → `main`, `on: pull_request` | Lints this repo's own Actions YAML (see [Security posture](#security-posture)). |
 
 ---
 

@@ -115,7 +115,14 @@ jobs:
 
       - name: Compile for CodeQL (Maven)
         if: steps.code-scanning.outputs.enabled == 'true'
-        run: ./mvnw -B -ntp -T 1C clean compile -DskipTests
+        run: >
+          ./mvnw -B -ntp clean compile
+          -T 1C
+          -Dmaven.test.skip=true
+          -Denforcer.skip=true
+          -Dspotless.check.skip=true
+          -Djacoco.skip=true
+          -Dcheckstyle.skip=true
 
       - name: Perform CodeQL Analysis
         if: steps.code-scanning.outputs.enabled == 'true'

@@ -1,4 +1,37 @@
-extends: relaxed
+yaml-files:
+  - '*.yaml'
+  - '*.yml'
+  - .yamllint
 
 rules:
-  line-length: disable
+  braces:
+    forbid: non-empty
+  brackets:
+    forbid: false
+  colons: enable
+  commas: enable
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: enable
+  document-end:
+    present: false
+  document-start:
+    present: false
+  empty-lines: enable
+  empty-values: disable
+  hyphens: enable
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+  key-duplicates: enable
+  key-ordering: disable
+  line-length:
+    max: 200
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+  new-line-at-end-of-file: enable
+  new-lines: enable
+  octal-values: enable
+  trailing-spaces: enable
+  truthy: disable

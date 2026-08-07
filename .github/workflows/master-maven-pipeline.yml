@@ -94,7 +94,7 @@ jobs:
   build:
     uses: ./.github/workflows/build.yml
     permissions:
-      contents: write
+      contents: read
     with:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
@@ -114,7 +114,6 @@ jobs:
       extra-allowed-endpoints: ${{ inputs.extra-build-endpoints }}
 
   verify:
-    needs: build
     uses: ./.github/workflows/verify.yml
     permissions:
       checks: write
@@ -132,7 +131,9 @@ jobs:
       extra-secrets: ${{ secrets.extra-secrets }}
 
   release:
-    needs: verify
+    needs:
+      - build
+      - verify
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write

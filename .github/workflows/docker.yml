@@ -133,7 +133,7 @@ jobs:
 
           echo "Building image: $IMAGE_NAME"
           echo "Publishing to GHCR: $PUBLISH"
-          
+
           # shellcheck disable=SC2086
           ./mvnw -B -ntp -T 1C package spring-boot:build-image $SPRING_BOOT_ARGS \
             -Dmaven.test.skip=true \

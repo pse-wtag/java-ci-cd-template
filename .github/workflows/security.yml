@@ -182,7 +182,7 @@ jobs:
 
       - name: Restore Trivy vulnerability DB
         id: trivy-cache
-        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ${{ github.workspace }}/.cache/trivy
           key: trivy-db-${{ steps.trivy-date.outputs.date }}

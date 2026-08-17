@@ -43,9 +43,18 @@ jobs:
           ACTIONLINT_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
         run: |
           set -euo pipefail
-          curl -sSLo actionlint.tar.gz \
+          curl --fail --show-error --silent --location \
+            --retry 5 --retry-delay 2 --retry-all-errors --retry-connrefused \
+            --connect-timeout 10 --max-time 120 \
+            -o actionlint.tar.gz \
             "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum -c -
+          if ! echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum -c -; then
+            echo "::error::actionlint checksum mismatch - downloaded file is not the expected release asset"
+            ls -l actionlint.tar.gz
+            file actionlint.tar.gz
+            head -c 512 actionlint.tar.gz | cat -v
+            exit 1
+          fi
           tar -xzf actionlint.tar.gz actionlint
           ./actionlint -color
 

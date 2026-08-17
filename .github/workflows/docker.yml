@@ -192,13 +192,13 @@ jobs:
         with:
           scan-type: image
           image-ref: ${{ steps.ref.outputs.ref }}
-          vuln-type: 'os,library'
           scanners: vuln
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: '1'
           format: table
           cache-dir: ${{ github.workspace }}/.cache/trivy
+          trivyignores: .trivyignore
 
       - name: Save Trivy vulnerability DB
         if: github.ref == 'refs/heads/main' && steps.trivy-cache.outputs.cache-hit != 'true'

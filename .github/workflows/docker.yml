@@ -91,7 +91,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Java Environment
-        uses: pse-wtag/java-ci-cd-template/.github/actions/java-setup@8951bfbc3e85cde4f5573fab04c50399c7995c64
+        uses: pse-wtag/java-ci-cd-template/.github/actions/java-setup@eab9ecc711576348dafed94089f0afffd2c89106
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
@@ -192,6 +192,7 @@ jobs:
         with:
           scan-type: image
           image-ref: ${{ steps.ref.outputs.ref }}
+          vuln-type: 'os,library'
           scanners: vuln
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -248,7 +249,7 @@ jobs:
 
       - name: GHCR Cleanup (With Auto-retry)
         if: github.event_name != 'pull_request'
-        uses: pse-wtag/java-ci-cd-template/.github/actions/ghcr-cleanup@1efd6d9cd60af6beeaecf7cb68e14ee52f5f297d
+        uses: pse-wtag/java-ci-cd-template/.github/actions/ghcr-cleanup@eab9ecc711576348dafed94089f0afffd2c89106
         with:
           image-name: ${{ github.event.repository.name }}
           pat-token: ${{ secrets.CR_PAT || github.token }}
